@@ -8,6 +8,49 @@ import matplotlib.pyplot as plt
 import mplcursors
 import time
 import numpy as np
+from enum import Enum
+from functools import partial
+import json
+import os
+
+
+class AF(Enum):
+    RELU = partial(F.relu)
+    SIGMOID = partial(F.sigmoid)
+    TANH = partial(F.tanh)
+    LEAKY_RELU = partial(F.leaky_relu)
+    B_SPLINE = None
+    
+seeds = [2934, 1234, 9859283]
+    
+# Set activation function to use in linear layers
+activation = AF.TANH
+
+os.makedirs(f"MNIST/{activation.name}", exist_ok=True)
+os.makedirs(f"MNIST/{activation.name}/model", exist_ok=True)
+os.makedirs(f"MNIST/{activation.name}/metrics", exist_ok=True)
+
+# Hyperparameters
+batch_size = 128
+learning_rate = 0.01
+num_epochs = 10
+  
+# Listen zum Speichern der Metriken
+train_losses = []
+test_losses = []
+test_accuracies = []
+train_times = []
+count_dead_neurons = []
+
+# Hyperparameters as dictionary for saving to JSON
+metrics = {
+    "dataset": "MNIST",
+    "batch_size": batch_size,
+    "learning_rate": learning_rate,
+    "num_epochs": num_epochs,
+    "activation": activation.name
+}
+
 
 
 class SimpleCNN(nn.Module):
@@ -23,7 +66,7 @@ class SimpleCNN(nn.Module):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = torch.flatten(x, 1) # flatten all dimensions except batch
-        x = F.relu(self.fc1(x))
+        x = activation.value(self.fc1(x))
         x = self.fc2(x)
         return x
     
@@ -33,21 +76,9 @@ class SimpleCNN(nn.Module):
             f"with {self.conv1.kernel_size[0]}x{self.conv1.kernel_size[1]} kernel size "
             f"and {self.pool.kernel_size} pooling kernel size"
         )
-  
-  
-# Listen zum Speichern der Metriken
-train_losses = []
-test_losses = []
-test_accuracies = []
-train_times = []
-count_dead_neurons = []
 
 
 def main():
-    # Hyperparameters
-    batch_size = 64
-    learning_rate = 0.01
-    num_epochs = 10
 
     # Load MNIST dataset
     transform = transforms.Compose([
@@ -77,15 +108,29 @@ def main():
         test(test_loader, model, criterion, device)
         end = time.time() - end
         train_times.append(np.round(end, 2))
-        print(f"Time: {end:.2f} s")
+        print(f"Time: {sum(train_times):.2f}s (+{end:.2f}s)")
     
     print(f"Finished training in {sum(train_times):.2f} s")
     
     # Save model
-    torch.save(model.state_dict(), "MNIST/model.ckpt")
+    seed_idx = seeds.index(seed)
+    path = f"MNIST/{activation.name}/model/model_{seed_idx:03d}.pt"
+    torch.save(model.state_dict(), path)
+    print(f"Model saved to {path}")
     
     # Plot metrics
     plot_metrics()
+    
+    # Save hyperparameters
+    path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}.json"
+    metrics["train_losses"] = train_losses
+    metrics["test_losses"] = test_losses
+    metrics["test_accuracies"] = test_accuracies
+    metrics["train_times"] = train_times
+    metrics["count_dead_neurons"] = count_dead_neurons
+    with open(path, "w") as f:
+        json.dump(metrics, f)
+    print(f"Metrics saved to {path}")
 
 
 def plot_metrics():
@@ -93,38 +138,50 @@ def plot_metrics():
     
     # Plot Training- and Test-Loss
     ax1 = plt.subplot(2, 2, 1)
-    line1, = ax1.plot(range(len(train_losses)), train_losses, 'o-', label="Training Loss")
-    line2, = ax1.plot(range(len(test_losses)), test_losses, 'o-', label="Test Loss")
+    line1, = ax1.plot(range(1, len(train_losses) + 1), train_losses, 'o-', label="Training Loss")
+    line2, = ax1.plot(range(1, len(test_losses) + 1), test_losses, 'o-', label="Test Loss")
     ax1.set_title("Loss")
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
     ax1.legend()
     ax1.grid()
-    mplcursors.cursor([line1, line2], hover=True)
+    min_loss = min(test_losses)
+    min_loss_idx = test_losses.index(min_loss)
+    ax1.annotate(f"Min Loss: {min_loss:.2f}", (min_loss_idx, min_loss), textcoords="offset points", xytext=(0, 10), ha='center')
+    mplcursors.cursor([line1, line2], hover=False)
     
     # Plot Test-Accuracy
     ax2 = plt.subplot(2, 2, 2)
-    line3, = ax2.plot(range(len(test_accuracies)), test_accuracies, 'o-', label="Test Accuracy")
+    line3, = ax2.plot(range(1, len(test_accuracies) + 1), test_accuracies, 'o-', label="Test Accuracy")
     ax2.set_title("Accuracy")
     ax2.set_xlabel("Epoch")
     ax2.set_ylabel("Accuracy (%)")
     ax2.legend()
     ax2.grid()
-    mplcursors.cursor([line3], hover=True)
+    max_acc = max(test_accuracies)
+    max_acc_idx = test_accuracies.index(max_acc)
+    ax2.annotate(f"Max Accuracy: {max_acc:.2f}%", (max_acc_idx, max_acc), textcoords="offset points", xytext=(0, 10), ha='center')
+    mplcursors.cursor([line3], hover=False)
     
     # Plot Train-Time over Epochs
     ax3 = plt.subplot(2, 2, 3)
-    line4, = ax3.plot(range(len(train_times)), train_times, 'o-', label="Train Time")
-    ax3.set_title(f"Train Time ({sum(train_times):.2f} s in total)")
+    line4, = ax3.plot(range(1, len(train_times) + 1), train_times, 'o-', label="Train Time")
+    ax3.set_title(f"Train Time ({sum(train_times):.2f}s in total)")
     ax3.set_xlabel("Epoch")
     ax3.set_ylabel("Time (s)")
     ax3.legend()
     ax3.grid()
-    mplcursors.cursor([line4], hover=True)
-    
-    # Show plot
+    mplcursors.cursor([line4], hover=False)
+        
+    # Save plot
+    seed_idx = seeds.index(seed)
+    path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}.png"
     plt.tight_layout()
-    plt.show()
+    plt.savefig(path)
+    print(f"Metrics saved to {path}")
+    
+
+    
 
 def train(train_loader, model, criterion, optimizer, device, epoch):
     model.train()
@@ -149,7 +206,7 @@ def train(train_loader, model, criterion, optimizer, device, epoch):
         
     avg_loss = running_loss / len(train_loader)
     train_losses.append(avg_loss)
-    print(f"Avg loss: {avg_loss:>8f}, Epoch: {epoch:>3d}") 
+    print(f"Avg loss: {avg_loss:>8f}, Epoch: {epoch+1:>3d}") 
 
 
 def test(test_loader, model, criterion, device):
@@ -171,5 +228,25 @@ def test(test_loader, model, criterion, device):
     print(f"Test Error: \n Accuracy: {accuracy:>0.1f}%, Avg loss: {test_loss:>8f} \n")
 
 
+def reset_lists():
+    train_losses.clear()
+    test_losses.clear()
+    test_accuracies.clear()
+    train_times.clear()
+    count_dead_neurons.clear()
+
+
 if __name__ == "__main__":
-    main()
+    ## Set seed for reproducibility
+    #seed = seeds[0]
+    #
+    #torch.manual_seed(seed)
+    #np.random.seed(seed)
+    
+    for seed in seeds:
+        reset_lists()
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        print(f"Seed: {seed}")
+        metrics["seed"] = seed
+        main()
