@@ -22,9 +22,7 @@ k = 3
 control_points = torch.tensor([
     [0.0, 0.0],
     [0.2, 0.8],
-    [0.8, 0.2],
     [1.0, 1.0],
-    [0.8, 0.8],
 ])
 control_points.requires_grad = True
 n = len(control_points) - 1
