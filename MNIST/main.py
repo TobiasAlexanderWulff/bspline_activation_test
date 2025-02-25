@@ -131,7 +131,7 @@ def main(activation, seed):
     print(f"Model saved to {path}")
     
     # Plot metrics
-    plot_metrics(activation)
+    plot_metrics(activation, model)
     
     # Save hyperparameters
     if type(activation.value.func) == BSpline:
@@ -163,7 +163,7 @@ def main(activation, seed):
     print(f"Metrics saved to {path}")
 
 
-def plot_metrics(activation):
+def plot_metrics(activation, model):
     plt.figure(figsize=(12, 12))
     
     # Plot Training- and Test-Loss
@@ -202,6 +202,18 @@ def plot_metrics(activation):
     ax3.legend()
     ax3.grid()
     mplcursors.cursor([line4], hover=False)
+    
+    # Plot Activation-Function
+    ax4 = plt.subplot(2, 2, 4)
+    ax4.set_title(f"Activation Function {activation.name}")
+    t = torch.linspace(-5, 5, 100).to(device)
+    t.requires_grad = True
+    ax4.set_xlabel("t")
+    ax4.set_ylabel("f(t)", rotation=0)
+    x, y = t, model.activation.value(t)
+    x, y = x.squeeze().cpu().detach().numpy(), y.squeeze().cpu().detach().numpy()
+    ax4.plot(x, y)
+    ax4.grid()
         
     # Save plot
     seed_idx = seeds.index(seed)
@@ -290,6 +302,8 @@ if __name__ == "__main__":
         metrics["seed"] = seed
         
         for activation in AF:
+            if not activation.name.startswith("B_SPLINE"):
+                continue
             reset_lists()
             os.makedirs(f"MNIST/{activation.name}", exist_ok=True)
             os.makedirs(f"MNIST/{activation.name}/model", exist_ok=True)
