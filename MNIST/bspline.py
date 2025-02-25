@@ -3,6 +3,7 @@ import torch.nn as nn
 from enum import Enum
 from functools import partial
 import matplotlib.pyplot as plt
+import mplcursors
 
 
 class Operation(Enum):
@@ -18,59 +19,88 @@ class Operation(Enum):
 
 bspline_id = 50
 
-# "normal" or "clamp" or "normalize"
-t_mode = "normalize" 
-
-k = 3
-control_points = torch.tensor([
-    [0.0, 0.0],
-    [0.2, 0.8],
-    [0.8, 0.2],
-    [1.0, 1.0],
-])
-control_points.requires_grad = True
-n = len(control_points) - 1
+# "normal" or "clamp" or "normalize" or "normalize knots"
+t_mode = "normalize knots" 
 
 
-#knots
-min_knot = 0.0
-max_knot = 1.0
-repeated_start_knots = k # <= k
-repeated_end_knots = k # <= k
-num_knots = n + 1 + k
-free_knots = num_knots - repeated_start_knots - repeated_end_knots
-knots = torch.cat((
-    torch.tensor([min_knot] * max(repeated_start_knots - 1, 0)),
-    torch.linspace(
-        min_knot, 
-        max_knot, 
-        free_knots + min(1, repeated_start_knots) + min(1, repeated_end_knots)
-        ),
-    torch.tensor([max_knot] * max(repeated_end_knots - 1, 0)),
-    ), dim=0
-)
-knots.requires_grad = False
-
-
-theta = 0.001
+# Beim Boor-Cox-Algorithmus kann es wohl zu Rundungsfehlern kommen, wodurch die Basisfunktion falsch ausgwertet werden kann.
+# epsilon ist ein kleiner Wert, der auf die Min- und Max-Knoten addiert bzw. subtrahiert wird, um sicherzustellen, dass die
+# Werte innerhalb der Knoten liegen.
+# ? Quelle: leider nur chatGPT bisher ☹️, aber funktioniert
+epsilon = 0.01
 
 
 class BSpline(nn.Module):
-    def __init__(self, operation):
+    def __init__(
+        self, 
+        operation, 
+        k=3,
+        cp_mode="random", # "set" or "random"
+        cp_count=4, # only used if cp_mode="random"
+        seed=42,
+        ):
         super(BSpline, self).__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        torch.manual_seed(seed)
+        # https://pytorch.org/docs/stable/notes/randomness.html
+        torch.backends.cudnn.deterministic = True 
+        torch.backends.cudnn.benchmark = False
         self.operation = operation
+        self.k = k # order of the B-Spline (not the degree! k = degree + 1)
+        self.cp_mode = cp_mode
+        self.cp_count = cp_count
+        self._gen_control_points(self.cp_mode, self.cp_count)
+        self.min_knot = 0.0
+        self.max_knot = 1.0
+        self._gen_knots()
+        
+    def _gen_control_points(self, cp_mode, cp_count):
+        if cp_mode == "set":
+            self.control_points = torch.tensor([
+                [0.0, 1.0],
+                [0.5, 0.5],
+                [1.0, 1.0],
+                [1.5, 0.5]
+                ])
+        elif cp_mode == "random":
+            self.control_points = torch.rand((cp_count, 2))
+        else:
+            raise ValueError(f"Unknown cp_mode: {cp_mode}")
+        self.control_points.requires_grad = True
+        self.n = len(self.control_points) - 1
+    
+    def _gen_knots(self):
+        self.repeated_start_knots = self.k # <= k
+        self.repeated_end_knots = self.k # <= k
+        self.num_knots = self.n + 1 + self.k
+        self.free_knots = self.num_knots - self.repeated_start_knots - self.repeated_end_knots
+        self.knots = torch.cat((
+            torch.tensor([self.min_knot] * max(self.repeated_start_knots - 1, 0)),
+            torch.linspace(
+                self.min_knot, 
+                self.max_knot, 
+                self.free_knots + min(1, self.repeated_start_knots) + min(1, self.repeated_end_knots)
+                ),
+            torch.tensor([self.max_knot] * max(self.repeated_end_knots - 1, 0)),
+            ), dim=0,
+        ).to(self.device)
+        self.knots.requires_grad = False
         
     def forward(self, t):
         match(t_mode):
             case "normal":
                 pass
             case "clamp":
-                t = torch.clamp(t, min_knot, max_knot)
+                t = torch.clamp(t, self.knots[self.k-1], self.knots[self.n+1])
             case "normalize":
                 t_min = torch.min(t)
                 t_max = torch.max(t)
                 t = (t - t_min) / (t_max - t_min)
-                t = t * ((max_knot - theta) - (min_knot + theta)) + min_knot + theta
+                t = t * ((self.max_knot - epsilon) - (self.min_knot + epsilon)) + self.min_knot + epsilon
+            case "normalize knots":
+                self.min_knot = torch.min(t).item() - epsilon
+                self.max_knot = torch.max(t).item() + epsilon
+                self._gen_knots()
             case _:
                 raise ValueError(f"Unknown t_mode: {t_mode}")
         
@@ -80,19 +110,19 @@ class BSpline(nn.Module):
     def bspline(self, t):
         x = torch.zeros_like(t)
         y = torch.zeros_like(t)
-        for i in range(n + 1):
-            x += control_points[i][0] * self.bspline_basis(i, k, t) if not self.operation == Operation.Y else torch.tensor(0.0)
-            y += control_points[i][1] * self.bspline_basis(i, k, t) if not self.operation == Operation.X else torch.tensor(0.0)
+        for i in range(self.n + 1):
+            x += self.control_points[i][0] * self.bspline_basis(i, self.k, t) if not self.operation == Operation.Y else torch.tensor(0.0)
+            y += self.control_points[i][1] * self.bspline_basis(i, self.k, t) if not self.operation == Operation.X else torch.tensor(0.0)
         return self.operation.value(x, y)
     
     def bspline_basis(self, i, k, t):
         if k == 1:
-            return torch.where((knots[i] <= t) & (t < knots[i + 1]), torch.tensor(1.0), torch.tensor(0.0))
-        else:
-            numerator1 = t - knots[i]
-            numerator2 = knots[i + k] - t
-            denominator1 = knots[i + k - 1] - knots[i]
-            denominator2 = knots[i + k] - knots[i + 1]
+            return torch.where((self.knots[i] <= t) & (t < self.knots[i + 1]), torch.tensor(1.0), torch.tensor(0.0))
+        elif k >= 2:
+            numerator1 = t - self.knots[i]
+            numerator2 = self.knots[i + k] - t
+            denominator1 = self.knots[i + k - 1] - self.knots[i]
+            denominator2 = self.knots[i + k] - self.knots[i + 1]
             term1 = torch.tensor(0.0)
             term2 = torch.tensor(0.0)
             if denominator1 != 0:
@@ -100,12 +130,23 @@ class BSpline(nn.Module):
             if denominator2 != 0:
                 term2 = (numerator2 / denominator2) * self.bspline_basis(i + 1, k - 1, t)
             return term1 + term2
-            
-            
-           
+        else:
+            raise ValueError(f"Unknown k: {k}")
+    
+    
+    def set_seed(self, seed):
+        torch.manual_seed(seed)  
+        self._gen_control_points(self.cp_mode, self.cp_count)
+        self._gen_knots()      
+    
+    def set_k(self, k):
+        self.k = k
+        self._gen_knots()
+    
+    
         
     def __str__(self):
-        return f"BSpline({k}, {n}) with control points {control_points}"
+        return f"BSpline({self.k}, {self.n}) with control points {self.control_points}"
     
     def __repr__(self):
         return str(self)
@@ -114,13 +155,13 @@ class BSpline(nn.Module):
 
 def plot(ax, model):
     ax.set_title(f"{model.operation.name}")
-    t = torch.linspace(knots[0], knots[-1], 100).to(device)
+    t = torch.linspace(-5, 5, 100).to(device)
     ax.set_xlabel("x")
     ax.set_ylabel("y", rotation=0)
     f = model(t)
     if model.operation == Operation.XY:
         x, y = f.chunk(2, dim=1)
-        ax.plot(control_points[:, 0].cpu().detach().numpy(), control_points[:, 1].cpu().detach().numpy(), 'ro')
+        ax.plot(model.control_points[:, 0].cpu().detach().numpy(), model.control_points[:, 1].cpu().detach().numpy(), 'ro')
         ax.legend(["Control Points"])
     else:
         x, y = t, f
@@ -135,7 +176,7 @@ def plot(ax, model):
 
 def plot_derivative(ax, model):
     ax.set_title(f"{model.operation.name} Derivative")
-    t = torch.linspace(knots[0], knots[-1], 100).to(device)
+    t = torch.linspace(-5, 5, 100).to(device)
     t.requires_grad = True
     ax.set_xlabel("x")
     ax.set_ylabel("y", rotation=0)
@@ -144,7 +185,7 @@ def plot_derivative(ax, model):
         x, y = f.chunk(2, dim=1)
         x = torch.autograd.grad(x, t, torch.ones_like(x), create_graph=True)[0]
         y = torch.autograd.grad(y, t, torch.ones_like(y), create_graph=True)[0]
-        ax.plot(control_points[:, 0].cpu().detach().numpy(), control_points[:, 1].cpu().detach().numpy(), 'ro')
+        ax.plot(model.control_points[:, 0].cpu().detach().numpy(), model.control_points[:, 1].cpu().detach().numpy(), 'ro')
         ax.legend(["Control Points"])
     else:
         grad = torch.autograd.grad(f, t, torch.ones_like(f), create_graph=True)[0]
@@ -164,7 +205,13 @@ def plot_everything():
     # Plot all operations 
     
     plt.figure(figsize=(20, 12))
-    plt.suptitle(f"BSpline #{bspline_id:03d} --- n = {n}, k = {k}, knots = {knots.tolist()}")
+    model = BSpline(Operation.XY).to(device)
+    model(torch.linspace(-5, 5, 100).to(device)) # to set the min_knot and max_knot
+    plt.suptitle(
+        f"BSpline #{bspline_id:03d} --- n = {model.n}, "
+        f"k = {model.k}, knots = {model.knots.tolist()}, "
+        f"CPs = {torch.round(model.control_points, decimals=2).tolist()}"
+        )
     for i, operation in enumerate(list(Operation)):
         model = BSpline(operation).to(device)
         ax = plt.subplot(4, 4, i + 1)
@@ -175,7 +222,7 @@ def plot_everything():
 
     plt.tight_layout()
     plt.savefig(f"bsplines/{bspline_id:03d}.png")
-    
+    mplcursors.cursor(hover=True)
     plt.show()
 
 

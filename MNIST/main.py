@@ -15,6 +15,9 @@ import os
 from bspline import BSpline, Operation
 
 
+
+
+
 class AF(Enum):
     RELU = partial(F.relu)
     SIGMOID = partial(F.sigmoid)
@@ -27,23 +30,14 @@ class AF(Enum):
     B_SPLINE_MUL = partial(BSpline(Operation.MUL))
     B_SPLINE_MAX = partial(BSpline(Operation.MAX))
     B_SPLINE_MIN = partial(BSpline(Operation.MIN))
-    B_SPLINE_SUM_K2 = partial(BSpline(Operation.SUM))
-    B_SPLINE_SUM_K3 = partial(BSpline(Operation.SUM))
     
 seeds = [2934, 1234, 9859283]
-    
-# Set activation function to use in linear layers
-activation = AF.B_SPLINE_SUM_K3
-print(type(activation.value.func))
 
-os.makedirs(f"MNIST/{activation.name}", exist_ok=True)
-os.makedirs(f"MNIST/{activation.name}/model", exist_ok=True)
-os.makedirs(f"MNIST/{activation.name}/metrics", exist_ok=True)
 
 # Hyperparameters
 batch_size = 128
 learning_rate = 0.01
-num_epochs = 10
+num_epochs = 5
   
 # Listen zum Speichern der Metriken
 train_losses = []
@@ -58,25 +52,25 @@ metrics = {
     "batch_size": batch_size,
     "learning_rate": learning_rate,
     "num_epochs": num_epochs,
-    "activation": activation.name
 }
 
 
 
 class SimpleCNN(nn.Module):
-    def __init__(self, num_classes=10):
+    def __init__(self, activation, num_classes=10):
         super(SimpleCNN, self).__init__()
         self.conv1 = nn.Conv2d(1, 32, 3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
         self.fc1 = nn.Linear(7 * 7 * 64, 128)
         self.fc2 = nn.Linear(128, num_classes)
+        self.activation = activation
     
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = torch.flatten(x, 1) # flatten all dimensions except batch
-        x = activation.value(self.fc1(x))
+        x = self.activation.value(self.fc1(x))
         x = self.fc2(x)
         return x
     
@@ -88,22 +82,27 @@ class SimpleCNN(nn.Module):
         )
 
 
-def main():
+def main(activation, seed):
+    
+    def seed_worker(worker_id):
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        torch.manual_seed(worker_seed)
+    
+    g = torch.Generator()
+    g.manual_seed(seed)
 
     # Load MNIST dataset
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5,), (0.5,))])
     train_dataset = datasets.MNIST(root="MNIST/data", train=True, transform=transform, download=True)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker, generator=g)
     test_dataset = datasets.MNIST(root="MNIST/data", train=False, transform=transform, download=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
 
     # Initialize model
-    model = SimpleCNN().to(device)
+    model = SimpleCNN(activation).to(device)
     print(model)
 
     # Loss and optimizer
@@ -120,30 +119,51 @@ def main():
         train_times.append(np.round(end, 2))
         print(f"Time: {sum(train_times):.2f}s (+{end:.2f}s)")
     
-    print(f"Finished training in {sum(train_times):.2f} s")
+    print(f"Finished training in {sum(train_times):.2f}s\n")
     
     # Save model
     seed_idx = seeds.index(seed)
-    path = f"MNIST/{activation.name}/model/model_{seed_idx:03d}.pt"
+    if type(activation.value.func) == BSpline:
+        path = f"MNIST/{activation.name}/model/model_{seed_idx:03d}_k{activation.value.func.k}.pt"
+    else:
+        path = f"MNIST/{activation.name}/model/model_{seed_idx:03d}.pt"
     torch.save(model.state_dict(), path)
     print(f"Model saved to {path}")
     
     # Plot metrics
-    plot_metrics()
+    plot_metrics(activation)
     
     # Save hyperparameters
-    path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}.json"
+    if type(activation.value.func) == BSpline:
+        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}_k{activation.value.func.k}.json"
+    else:
+        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}.json"
+    metrics["activation"] = activation.name
     metrics["train_losses"] = train_losses
     metrics["test_losses"] = test_losses
     metrics["test_accuracies"] = test_accuracies
     metrics["train_times"] = train_times
     metrics["count_dead_neurons"] = count_dead_neurons
+    if activation.name.startswith("B_SPLINE"):
+        metrics["k"] = activation.value.func.k
+        metrics["operation"] = activation.value.func.operation.name
+        metrics["control_points"] = activation.value.func.control_points.tolist()
+        metrics["knots"] = activation.value.func.knots.tolist()
+        metrics["min_knot"] = activation.value.func.min_knot
+        metrics["max_knot"] = activation.value.func.max_knot
+        metrics["cp_mode"] = activation.value.func.cp_mode
+        metrics["cp_count"] = activation.value.func.cp_count
+        metrics["repeated_start_knots"] = activation.value.func.repeated_start_knots
+        metrics["repeated_end_knots"] = activation.value.func.repeated_end_knots
+        metrics["num_knots"] = activation.value.func.num_knots
+        metrics["free_knots"] = activation.value.func.free_knots
+        metrics["n"] = activation.value.func.n
     with open(path, "w") as f:
         json.dump(metrics, f)
     print(f"Metrics saved to {path}")
 
 
-def plot_metrics():
+def plot_metrics(activation):
     plt.figure(figsize=(12, 12))
     
     # Plot Training- and Test-Loss
@@ -185,10 +205,13 @@ def plot_metrics():
         
     # Save plot
     seed_idx = seeds.index(seed)
-    path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}.png"
+    if type(activation.value.func) == BSpline:
+        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}_k{activation.value.func.k}.png"
+    else:
+        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}.png"
     plt.tight_layout()
     plt.savefig(path)
-    print(f"Metrics saved to {path}")
+    print(f"Metrics saved to {path}\n")
     
 
     
@@ -253,19 +276,31 @@ if __name__ == "__main__":
     #torch.manual_seed(seed)
     #np.random.seed(seed)
     
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device: {device}")
+    
     for seed in seeds:
         reset_lists()
         torch.manual_seed(seed)
         np.random.seed(seed)
+        # https://pytorch.org/docs/stable/notes/randomness.html
+        torch.backends.cudnn.deterministic = True 
+        torch.backends.cudnn.benchmark = False
         print(f"Seed: {seed}")
         metrics["seed"] = seed
-        # TODO move k and stuff inside of BSpline than activate this
-        #if type(activation.value.func) == BSpline:
-        #    for k in range(2, 4):
-        #        print(f"K: {k}")
-        #        metrics["k"] = k
-        #        activation.value.func.k = k
-        #        main()
-        #else:
-        #    main()
-        main()
+        
+        for activation in AF:
+            reset_lists()
+            os.makedirs(f"MNIST/{activation.name}", exist_ok=True)
+            os.makedirs(f"MNIST/{activation.name}/model", exist_ok=True)
+            os.makedirs(f"MNIST/{activation.name}/metrics", exist_ok=True)
+            print(f"\nActivation: {activation.name}")
+            if type(activation.value.func) == BSpline:
+                for k in range(2, 4):
+                    reset_lists()
+                    print(f"K: {k}")
+                    activation.value.func.set_k(k)
+                    activation.value.func.set_seed(seed)
+                    main(activation, seed)
+            else:
+                main(activation, seed)
