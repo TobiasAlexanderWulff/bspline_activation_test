@@ -12,6 +12,7 @@ from enum import Enum
 from functools import partial
 import json
 import os
+from bspline import BSpline, Operation
 
 
 class AF(Enum):
@@ -19,12 +20,21 @@ class AF(Enum):
     SIGMOID = partial(F.sigmoid)
     TANH = partial(F.tanh)
     LEAKY_RELU = partial(F.leaky_relu)
-    B_SPLINE = None
+    B_SPLINE_X = partial(BSpline(Operation.X))
+    B_SPLINE_Y = partial(BSpline(Operation.Y))
+    B_SPLINE_SUM = partial(BSpline(Operation.SUM))
+    B_SPLINE_DIF = partial(BSpline(Operation.DIF))
+    B_SPLINE_MUL = partial(BSpline(Operation.MUL))
+    B_SPLINE_MAX = partial(BSpline(Operation.MAX))
+    B_SPLINE_MIN = partial(BSpline(Operation.MIN))
+    B_SPLINE_SUM_K2 = partial(BSpline(Operation.SUM))
+    B_SPLINE_SUM_K3 = partial(BSpline(Operation.SUM))
     
 seeds = [2934, 1234, 9859283]
     
 # Set activation function to use in linear layers
-activation = AF.TANH
+activation = AF.B_SPLINE_SUM_K3
+print(type(activation.value.func))
 
 os.makedirs(f"MNIST/{activation.name}", exist_ok=True)
 os.makedirs(f"MNIST/{activation.name}/model", exist_ok=True)
@@ -249,4 +259,13 @@ if __name__ == "__main__":
         np.random.seed(seed)
         print(f"Seed: {seed}")
         metrics["seed"] = seed
+        # TODO move k and stuff inside of BSpline than activate this
+        #if type(activation.value.func) == BSpline:
+        #    for k in range(2, 4):
+        #        print(f"K: {k}")
+        #        metrics["k"] = k
+        #        activation.value.func.k = k
+        #        main()
+        #else:
+        #    main()
         main()

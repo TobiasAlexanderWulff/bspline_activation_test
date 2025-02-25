@@ -5,7 +5,7 @@ from functools import partial
 import matplotlib.pyplot as plt
 
 
-class Operation(Enum):#
+class Operation(Enum):
     XY = partial(lambda x, y: torch.column_stack((x, y)))
     X = partial(lambda x, y: x)
     Y = partial(lambda x, y: y)
@@ -16,16 +16,21 @@ class Operation(Enum):#
     MIN = partial(torch.min)
 
 
-bspline_id = 30
+bspline_id = 50
+
+# "normal" or "clamp" or "normalize"
+t_mode = "normalize" 
 
 k = 3
 control_points = torch.tensor([
     [0.0, 0.0],
     [0.2, 0.8],
+    [0.8, 0.2],
     [1.0, 1.0],
 ])
 control_points.requires_grad = True
 n = len(control_points) - 1
+
 
 #knots
 min_knot = 0.0
@@ -47,20 +52,37 @@ knots = torch.cat((
 knots.requires_grad = False
 
 
+theta = 0.001
+
+
 class BSpline(nn.Module):
     def __init__(self, operation):
         super(BSpline, self).__init__()
         self.operation = operation
         
     def forward(self, t):
+        match(t_mode):
+            case "normal":
+                pass
+            case "clamp":
+                t = torch.clamp(t, min_knot, max_knot)
+            case "normalize":
+                t_min = torch.min(t)
+                t_max = torch.max(t)
+                t = (t - t_min) / (t_max - t_min)
+                t = t * ((max_knot - theta) - (min_knot + theta)) + min_knot + theta
+            case _:
+                raise ValueError(f"Unknown t_mode: {t_mode}")
+        
+        
         return self.bspline(t)
     
     def bspline(self, t):
         x = torch.zeros_like(t)
         y = torch.zeros_like(t)
         for i in range(n + 1):
-            x += control_points[i][0] * self.bspline_basis(i, k, t)
-            y += control_points[i][1] * self.bspline_basis(i, k, t)
+            x += control_points[i][0] * self.bspline_basis(i, k, t) if not self.operation == Operation.Y else torch.tensor(0.0)
+            y += control_points[i][1] * self.bspline_basis(i, k, t) if not self.operation == Operation.X else torch.tensor(0.0)
         return self.operation.value(x, y)
     
     def bspline_basis(self, i, k, t):
@@ -88,6 +110,7 @@ class BSpline(nn.Module):
     def __repr__(self):
         return str(self)
     
+
 
 def plot(ax, model):
     ax.set_title(f"{model.operation.name}")
