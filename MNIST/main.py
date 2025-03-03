@@ -300,7 +300,7 @@ if __name__ == "__main__":
         torch.backends.cudnn.benchmark = False
         print(f"Seed: {seed}")
         metrics["seed"] = seed
-        
+                
         for activation in AF:
             if not activation.name.startswith("B_SPLINE"):
                 continue
