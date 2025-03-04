@@ -44,6 +44,7 @@ train_losses = []
 test_losses = []
 test_accuracies = []
 train_times = []
+l2_norms = []
 count_dead_neurons = []
 
 # Hyperparameters as dictionary for saving to JSON
@@ -124,9 +125,9 @@ def main(activation, seed):
     # Save model
     seed_idx = seeds.index(seed)
     if type(activation.value.func) == BSpline:
-        path = f"MNIST/{activation.name}/model/model_{seed_idx:03d}_k{activation.value.func.k}.pt"
+        path = f"MNIST/{activation.name}/model/model_{seed_idx:03d}_k{activation.value.func.k}_{num_epochs}.pt"
     else:
-        path = f"MNIST/{activation.name}/model/model_{seed_idx:03d}.pt"
+        path = f"MNIST/{activation.name}/model/model_{seed_idx:03d}_{num_epochs}.pt"
     torch.save(model.state_dict(), path)
     print(f"Model saved to {path}")
     
@@ -135,14 +136,15 @@ def main(activation, seed):
     
     # Save hyperparameters
     if type(activation.value.func) == BSpline:
-        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}_k{activation.value.func.k}.json"
+        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}_k{activation.value.func.k}_{num_epochs}.json"
     else:
-        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}.json"
+        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}_{num_epochs}.json"
     metrics["activation"] = activation.name
     metrics["train_losses"] = train_losses
     metrics["test_losses"] = test_losses
     metrics["test_accuracies"] = test_accuracies
     metrics["train_times"] = train_times
+    metrics["l2_norms"] = l2_norms
     metrics["count_dead_neurons"] = count_dead_neurons
     if activation.name.startswith("B_SPLINE"):
         metrics["k"] = activation.value.func.k
@@ -167,11 +169,12 @@ def plot_metrics(activation, model):
     plt.figure(figsize=(12, 12))
     
     # Plot Training- and Test-Loss
-    ax1 = plt.subplot(2, 2, 1)
+    ax1 = plt.subplot(3, 2, 1)
     line1, = ax1.plot(range(1, len(train_losses) + 1), train_losses, 'o-', label="Training Loss")
     line2, = ax1.plot(range(1, len(test_losses) + 1), test_losses, 'o-', label="Test Loss")
     ax1.set_title("Loss")
     ax1.set_xlabel("Epoch")
+    ax1.set_xticks(range(1, len(train_losses) + 1))
     ax1.set_ylabel("Loss")
     ax1.legend()
     ax1.grid()
@@ -181,10 +184,11 @@ def plot_metrics(activation, model):
     mplcursors.cursor([line1, line2], hover=False)
     
     # Plot Test-Accuracy
-    ax2 = plt.subplot(2, 2, 2)
+    ax2 = plt.subplot(3, 2, 2)
     line3, = ax2.plot(range(1, len(test_accuracies) + 1), test_accuracies, 'o-', label="Test Accuracy")
     ax2.set_title("Accuracy")
     ax2.set_xlabel("Epoch")
+    ax2.set_xticks(range(1, len(test_accuracies) + 1))
     ax2.set_ylabel("Accuracy (%)")
     ax2.legend()
     ax2.grid()
@@ -194,33 +198,45 @@ def plot_metrics(activation, model):
     mplcursors.cursor([line3], hover=False)
     
     # Plot Train-Time over Epochs
-    ax3 = plt.subplot(2, 2, 3)
+    ax3 = plt.subplot(3, 2, 3)
     line4, = ax3.plot(range(1, len(train_times) + 1), train_times, 'o-', label="Train Time")
     ax3.set_title(f"Train Time ({sum(train_times):.2f}s in total)")
     ax3.set_xlabel("Epoch")
+    ax3.set_xticks(range(1, len(train_times) + 1))
     ax3.set_ylabel("Time (s)")
     ax3.legend()
     ax3.grid()
     mplcursors.cursor([line4], hover=False)
     
+    # Plot L2-Norm over Epochs
+    ax4 = plt.subplot(3, 2, 4)
+    line5, = ax4.plot(range(1, len(l2_norms) + 1), l2_norms, 'o-', label="L2-Norm")
+    ax4.set_title("L2-Norm")
+    ax4.set_xlabel("Epoch")
+    ax4.set_xticks(range(1, len(l2_norms) + 1))
+    ax4.set_ylabel("L2-Norm")
+    ax4.legend()
+    ax4.grid()
+    mplcursors.cursor([line5], hover=False)
+    
     # Plot Activation-Function
-    ax4 = plt.subplot(2, 2, 4)
-    ax4.set_title(f"Activation Function {activation.name}")
+    ax5 = plt.subplot(3, 2, 6)
+    ax5.set_title(f"Activation Function {activation.name}")
     t = torch.linspace(-5, 5, 100).to(device)
     t.requires_grad = True
-    ax4.set_xlabel("t")
-    ax4.set_ylabel("f(t)", rotation=0)
+    ax5.set_xlabel("t")
+    ax5.set_ylabel("f(t)", rotation=0)
     x, y = t, model.activation.value(t)
     x, y = x.squeeze().cpu().detach().numpy(), y.squeeze().cpu().detach().numpy()
-    ax4.plot(x, y)
-    ax4.grid()
+    ax5.plot(x, y)
+    ax5.grid()
         
     # Save plot
     seed_idx = seeds.index(seed)
     if type(activation.value.func) == BSpline:
-        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}_k{activation.value.func.k}.png"
+        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}_k{activation.value.func.k}_{num_epochs}.png"
     else:
-        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}.png"
+        path = f"MNIST/{activation.name}/metrics/metrics_{seed_idx:03d}_{num_epochs}.png"
     plt.tight_layout()
     plt.savefig(path)
     print(f"Metrics saved to {path}\n")
@@ -231,6 +247,7 @@ def plot_metrics(activation, model):
 def train(train_loader, model, criterion, optimizer, device, epoch):
     model.train()
     running_loss = 0.0
+    batch_l2_norms = []
     size = len(train_loader.dataset)
     for batch, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
@@ -242,12 +259,25 @@ def train(train_loader, model, criterion, optimizer, device, epoch):
         
         # Backward pass
         loss.backward()
+        
+        # Berechne L2-Norm für diesen Batch
+        batch_l2_norm = 0.0
+        for p in model.parameters():
+            if p.grad is not None:
+                batch_l2_norm += p.grad.data.norm(2).item() ** 2
+        batch_l2_norm = batch_l2_norm ** 0.5
+        batch_l2_norms.append(batch_l2_norm)
+        
         optimizer.step()
         running_loss += loss.item()
         
         if batch % 100 == 0:
             loss, current = loss.item(), batch * len(inputs)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+    
+    # Mittelwert der L2-Normen aller Batches in dieser Epoche
+    avg_l2_norm = sum(batch_l2_norms) / len(batch_l2_norms)
+    l2_norms.append(avg_l2_norm)
         
     avg_loss = running_loss / len(train_loader)
     train_losses.append(avg_loss)
@@ -278,6 +308,7 @@ def reset_lists():
     test_losses.clear()
     test_accuracies.clear()
     train_times.clear()
+    l2_norms.clear()
     count_dead_neurons.clear()
 
 
@@ -302,8 +333,15 @@ if __name__ == "__main__":
         metrics["seed"] = seed
                 
         for activation in AF:
-            if not activation.name.startswith("B_SPLINE"):
-                continue
+            
+            # * Uncomment to skip all non B-Spline activations
+            #if not activation.name.startswith("B_SPLINE"):
+            #    continue
+            
+            # * Uncomment to skip all B-Spline activations
+            #if activation.name.startswith("B_SPLINE"):
+            #    continue
+            
             reset_lists()
             os.makedirs(f"MNIST/{activation.name}", exist_ok=True)
             os.makedirs(f"MNIST/{activation.name}/model", exist_ok=True)
