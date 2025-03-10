@@ -11,6 +11,8 @@ evalulated_data = {
     "top_3_times": {}, # (top min times)
     "top_3_losses": {}, # (top min losses)
     "top_3_l2_norms": {}, # (top min l2 norms)
+    "top_3_conv_l2_norms": {}, # (top min conv l2 norms)
+    "top_3_fc_l2_norms": {}, # (top min fc l2 norms)
 }
 
 data = {}
@@ -57,6 +59,8 @@ def eval_data():
             "Time": data[key]["train_times"][-1],
             "Loss": data[key]["train_losses"][-1],
             "L2 Norm": data[key]["l2_norms"][-1],
+            "Conv L2 Norm": data[key]["conv_l2_norms"][-1],
+            "FC L2 Norm": data[key]["fc_l2_norms"][-1],
             "seed": f"{seeds.index(data[key]['seed']):03d}",
             "k": data[key]["k"] if "k" in key else None
         }
@@ -67,6 +71,8 @@ def eval_data():
     sorted_times = np.argsort([data_obj["Time"] for data_obj in data_objects])
     sorted_losses = np.argsort([data_obj["Loss"] for data_obj in data_objects])
     l2_norms = np.argsort([data_obj["L2 Norm"] for data_obj in data_objects])
+    conv_l2_norms = np.argsort([data_obj["Conv L2 Norm"] for data_obj in data_objects])
+    fc_l2_norms = np.argsort([data_obj["FC L2 Norm"] for data_obj in data_objects])
     
     # top 3 accuracies, times, losses
     for i in range(3):
@@ -74,6 +80,8 @@ def eval_data():
         evalulated_data["top_3_times"][f"{i+1}."] = data_objects[sorted_times[i]]
         evalulated_data["top_3_losses"][f"{i+1}."] = data_objects[sorted_losses[i]]
         evalulated_data["top_3_l2_norms"][f"{i+1}."] = data_objects[l2_norms[i]]
+        evalulated_data["top_3_conv_l2_norms"][f"{i+1}."] = data_objects[conv_l2_norms[i]]
+        evalulated_data["top_3_fc_l2_norms"][f"{i+1}."] = data_objects[fc_l2_norms[i]]
 
 
 def plot_data(seed_str):
@@ -82,6 +90,8 @@ def plot_data(seed_str):
     losses = {}
     times = {}
     l2_norms = {}
+    conv_l2_norms = {}
+    fc_l2_norms = {}
     for key in data:
         accuracies[key] = {
             "model": data[key]["activation"],
@@ -103,13 +113,23 @@ def plot_data(seed_str):
             "k": data[key]["k"] if "k" in key else None,
             "l2_norms": data[key]["l2_norms"],
             }
+        conv_l2_norms[key] = {
+            "model": data[key]["activation"],
+            "k": data[key]["k"] if "k" in key else None,
+            "l2_norms": data[key]["conv_l2_norms"],
+            }
+        fc_l2_norms[key] = {
+            "model": data[key]["activation"],
+            "k": data[key]["k"] if "k" in key else None,
+            "l2_norms": data[key]["fc_l2_norms"],
+            }
     
     # plot data
     plt.figure(figsize=(24, 14))
     plt.suptitle(f"{seed_str} models compared")
     
     # plot accuracies
-    ax1 = plt.subplot(2, 2, 1)
+    ax1 = plt.subplot(3, 2, 1)
     ax1.set_title("Accuracies")
     for key in accuracies:
         label = f"{accuracies[key]['model']}_k{accuracies[key]['k']}" if accuracies[key]["k"] else accuracies[key]['model']
@@ -127,7 +147,7 @@ def plot_data(seed_str):
     leg.set_title("Models")
     
     # plot losses
-    ax2 = plt.subplot(2, 2, 2)
+    ax2 = plt.subplot(3, 2, 2)
     ax2.set_title("Losses")
     for key in losses:
         label = f"{losses[key]['model']}_k{losses[key]['k']}" if losses[key]["k"] else losses[key]['model']
@@ -139,7 +159,7 @@ def plot_data(seed_str):
     mplcursors.cursor(hover=True)
     
     # plot times
-    ax3 = plt.subplot(2, 2, 3)
+    ax3 = plt.subplot(3, 2, 3)
     ax3.set_title("Times")
     for key in times:
         label = f"{times[key]['model']}_k{times[key]['k']}" if times[key]["k"] else times[key]['model']
@@ -150,7 +170,7 @@ def plot_data(seed_str):
     ax3.set_ylabel("Time (s)")
     
     # plot l2 norms
-    ax4 = plt.subplot(2, 2, 4)
+    ax4 = plt.subplot(3, 2, 4)
     ax4.set_title("L2 Norms")
     for key in l2_norms:
         label = f"{l2_norms[key]['model']}_k{l2_norms[key]['k']}" if l2_norms[key]["k"] else l2_norms[key]['model']
@@ -160,6 +180,29 @@ def plot_data(seed_str):
     ax4.set_xticks(range(1, num_epochs + 1))
     ax4.set_ylabel("L2 Norm")
     
+    # plot conv l2 norms
+    ax5 = plt.subplot(3, 2, 5)
+    ax5.set_title("Conv L2 Norms")
+    for key in conv_l2_norms:
+        label = f"{conv_l2_norms[key]['model']}_k{conv_l2_norms[key]['k']}" if conv_l2_norms[key]["k"] else conv_l2_norms[key]['model']
+        ax5.plot(range(1, num_epochs + 1), conv_l2_norms[key]["l2_norms"], label=label)
+    ax5.grid()
+    ax5.set_xlabel("Epochs")
+    ax5.set_xticks(range(1, num_epochs + 1))
+    ax5.set_ylabel("Conv L2 Norm")
+    
+    # plot fc l2 norms
+    ax6 = plt.subplot(3, 2, 6)
+    ax6.set_title("FC L2 Norms")
+    for key in fc_l2_norms:
+        label = f"{fc_l2_norms[key]['model']}_k{fc_l2_norms[key]['k']}" if fc_l2_norms[key]["k"] else fc_l2_norms[key]['model']
+        ax6.plot(range(1, num_epochs + 1), fc_l2_norms[key]["l2_norms"], label=label)
+    ax6.grid()
+    ax6.set_xlabel("Epochs")
+    ax6.set_xticks(range(1, num_epochs + 1))
+    ax6.set_ylabel("FC L2 Norm")
+    
+    # adjust subplots
     plt.subplots_adjust(hspace=0.4)
     mplcursors.cursor(hover=True)
     

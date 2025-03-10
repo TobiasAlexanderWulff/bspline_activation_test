@@ -37,7 +37,7 @@ seeds = [2934, 1234, 9859283]
 # Hyperparameters
 batch_size = 128
 learning_rate = 0.01
-num_epochs = 5
+num_epochs = 10
   
 # Listen zum Speichern der Metriken
 train_losses = []
@@ -46,6 +46,16 @@ test_accuracies = []
 train_times = []
 l2_norms = []
 count_dead_neurons = []
+
+# Bestehende Layer-Gruppen
+conv_l2_norms = []
+fc_l2_norms = []
+
+# Neue individuellen Layer-spezifischen Listen
+conv1_l2_norms = []  # für die erste Conv-Schicht
+conv2_l2_norms = []  # für die zweite Conv-Schicht
+fc1_l2_norms = []    # für die erste FC-Schicht
+fc2_l2_norms = []    # für die zweite FC-Schicht
 
 # Hyperparameters as dictionary for saving to JSON
 metrics = {
@@ -145,6 +155,12 @@ def main(activation, seed):
     metrics["test_accuracies"] = test_accuracies
     metrics["train_times"] = train_times
     metrics["l2_norms"] = l2_norms
+    metrics["conv_l2_norms"] = conv_l2_norms
+    metrics["fc_l2_norms"] = fc_l2_norms
+    metrics["conv1_l2_norms"] = conv1_l2_norms  # Neu
+    metrics["conv2_l2_norms"] = conv2_l2_norms  # Neu
+    metrics["fc1_l2_norms"] = fc1_l2_norms      # Neu
+    metrics["fc2_l2_norms"] = fc2_l2_norms      # Neu
     metrics["count_dead_neurons"] = count_dead_neurons
     if activation.name.startswith("B_SPLINE"):
         metrics["k"] = activation.value.func.k
@@ -169,7 +185,7 @@ def plot_metrics(activation, model):
     plt.figure(figsize=(12, 12))
     
     # Plot Training- and Test-Loss
-    ax1 = plt.subplot(3, 2, 1)
+    ax1 = plt.subplot(3, 3, 1)
     line1, = ax1.plot(range(1, len(train_losses) + 1), train_losses, 'o-', label="Training Loss")
     line2, = ax1.plot(range(1, len(test_losses) + 1), test_losses, 'o-', label="Test Loss")
     ax1.set_title("Loss")
@@ -184,7 +200,7 @@ def plot_metrics(activation, model):
     mplcursors.cursor([line1, line2], hover=False)
     
     # Plot Test-Accuracy
-    ax2 = plt.subplot(3, 2, 2)
+    ax2 = plt.subplot(3, 3, 2)
     line3, = ax2.plot(range(1, len(test_accuracies) + 1), test_accuracies, 'o-', label="Test Accuracy")
     ax2.set_title("Accuracy")
     ax2.set_xlabel("Epoch")
@@ -198,7 +214,7 @@ def plot_metrics(activation, model):
     mplcursors.cursor([line3], hover=False)
     
     # Plot Train-Time over Epochs
-    ax3 = plt.subplot(3, 2, 3)
+    ax3 = plt.subplot(3, 3, 3)
     line4, = ax3.plot(range(1, len(train_times) + 1), train_times, 'o-', label="Train Time")
     ax3.set_title(f"Train Time ({sum(train_times):.2f}s in total)")
     ax3.set_xlabel("Epoch")
@@ -209,7 +225,7 @@ def plot_metrics(activation, model):
     mplcursors.cursor([line4], hover=False)
     
     # Plot L2-Norm over Epochs
-    ax4 = plt.subplot(3, 2, 4)
+    ax4 = plt.subplot(3, 3, 4)
     line5, = ax4.plot(range(1, len(l2_norms) + 1), l2_norms, 'o-', label="L2-Norm")
     ax4.set_title("L2-Norm")
     ax4.set_xlabel("Epoch")
@@ -219,17 +235,63 @@ def plot_metrics(activation, model):
     ax4.grid()
     mplcursors.cursor([line5], hover=False)
     
+    # Plot Conv-L2-Norm over Epochs
+    ax5 = plt.subplot(3, 3, 5)
+    line6, = ax5.plot(range(1, len(conv_l2_norms) + 1), conv_l2_norms, 'o-', label="Conv L2-Norm")
+    ax5.set_title("Conv L2-Norm")
+    ax5.set_xlabel("Epoch")
+    ax5.set_xticks(range(1, len(conv_l2_norms) + 1))
+    ax5.set_ylabel("Conv L2-Norm")
+    ax5.legend()
+    ax5.grid()
+    mplcursors.cursor([line6], hover=False)
+    
+    # Plot FC-L2-Norm over Epochs
+    ax6 = plt.subplot(3, 3, 6)
+    line7, = ax6.plot(range(1, len(fc_l2_norms) + 1), fc_l2_norms, 'o-', label="FC L2-Norm")
+    ax6.set_title("FC L2-Norm")
+    ax6.set_xlabel("Epoch")
+    ax6.set_xticks(range(1, len(fc_l2_norms) + 1))
+    ax6.set_ylabel("FC L2-Norm")
+    ax6.legend()
+    ax6.grid()
+    mplcursors.cursor([line7], hover=False)
+    
+    # Vergleich der Conv-Layer (früh vs spät)
+    ax7 = plt.subplot(3, 3, 7)
+    line8, = ax7.plot(range(1, len(conv1_l2_norms) + 1), conv1_l2_norms, 'o-', label="Conv1 L2-Norm")
+    line9, = ax7.plot(range(1, len(conv2_l2_norms) + 1), conv2_l2_norms, 'o-', label="Conv2 L2-Norm")
+    ax7.set_title("Conv Layers Comparison")
+    ax7.set_xlabel("Epoch")
+    ax7.set_xticks(range(1, len(conv1_l2_norms) + 1))
+    ax7.set_ylabel("L2-Norm")
+    ax7.legend()
+    ax7.grid()
+    mplcursors.cursor([line8, line9], hover=False)
+
+    # Vergleich der FC-Layer (früh vs spät)
+    ax8 = plt.subplot(3, 3, 8)
+    line10, = ax8.plot(range(1, len(fc1_l2_norms) + 1), fc1_l2_norms, 'o-', label="FC1 L2-Norm")
+    line11, = ax8.plot(range(1, len(fc2_l2_norms) + 1), fc2_l2_norms, 'o-', label="FC2 L2-Norm")
+    ax8.set_title("FC Layers Comparison")
+    ax8.set_xlabel("Epoch")
+    ax8.set_xticks(range(1, len(fc1_l2_norms) + 1))
+    ax8.set_ylabel("L2-Norm")
+    ax8.legend()
+    ax8.grid()
+    mplcursors.cursor([line10, line11], hover=False)
+    
     # Plot Activation-Function
-    ax5 = plt.subplot(3, 2, 6)
-    ax5.set_title(f"Activation Function {activation.name}")
+    ax9 = plt.subplot(3, 3, 9)
+    ax9.set_title(f"Activation Function {activation.name}")
     t = torch.linspace(-5, 5, 100).to(device)
     t.requires_grad = True
-    ax5.set_xlabel("t")
-    ax5.set_ylabel("f(t)", rotation=0)
+    ax9.set_xlabel("t")
+    ax9.set_ylabel("f(t)", rotation=0)
     x, y = t, model.activation.value(t)
     x, y = x.squeeze().cpu().detach().numpy(), y.squeeze().cpu().detach().numpy()
-    ax5.plot(x, y)
-    ax5.grid()
+    ax9.plot(x, y)
+    ax9.grid()
         
     # Save plot
     seed_idx = seeds.index(seed)
@@ -248,7 +310,17 @@ def train(train_loader, model, criterion, optimizer, device, epoch):
     model.train()
     running_loss = 0.0
     batch_l2_norms = []
+    batch_conv_l2_norms = []
+    batch_fc_l2_norms = []
+    
+    # Neue Listen für individuelle Schichten
+    batch_conv1_l2_norms = []
+    batch_conv2_l2_norms = []
+    batch_fc1_l2_norms = []
+    batch_fc2_l2_norms = []
+    
     size = len(train_loader.dataset)
+    
     for batch, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -260,13 +332,51 @@ def train(train_loader, model, criterion, optimizer, device, epoch):
         # Backward pass
         loss.backward()
         
-        # Berechne L2-Norm für diesen Batch
+        # Initialisiere L2-Normen für diesen Batch
         batch_l2_norm = 0.0
-        for p in model.parameters():
+        conv_l2_norm = 0.0
+        fc_l2_norm = 0.0
+        conv1_l2_norm = 0.0
+        conv2_l2_norm = 0.0
+        fc1_l2_norm = 0.0
+        fc2_l2_norm = 0.0
+        
+        for name, p in model.named_parameters():
             if p.grad is not None:
-                batch_l2_norm += p.grad.data.norm(2).item() ** 2
+                param_norm = p.grad.data.norm(2).item() ** 2
+                batch_l2_norm += param_norm
+                
+                # Nach Schichttyp und spezifischer Schicht aufteilen
+                if 'conv' in name:
+                    conv_l2_norm += param_norm
+                    if 'conv1' in name:
+                        conv1_l2_norm += param_norm
+                    elif 'conv2' in name:
+                        conv2_l2_norm += param_norm
+                elif 'fc' in name:
+                    fc_l2_norm += param_norm
+                    if 'fc1' in name:
+                        fc1_l2_norm += param_norm
+                    elif 'fc2' in name:
+                        fc2_l2_norm += param_norm
+        
+        # Wurzel ziehen für alle L2-Normen
         batch_l2_norm = batch_l2_norm ** 0.5
+        conv_l2_norm = conv_l2_norm ** 0.5
+        fc_l2_norm = fc_l2_norm ** 0.5
+        conv1_l2_norm = conv1_l2_norm ** 0.5
+        conv2_l2_norm = conv2_l2_norm ** 0.5
+        fc1_l2_norm = fc1_l2_norm ** 0.5
+        fc2_l2_norm = fc2_l2_norm ** 0.5
+        
+        # Batch-Werte sammeln
         batch_l2_norms.append(batch_l2_norm)
+        batch_conv_l2_norms.append(conv_l2_norm)
+        batch_fc_l2_norms.append(fc_l2_norm)
+        batch_conv1_l2_norms.append(conv1_l2_norm)
+        batch_conv2_l2_norms.append(conv2_l2_norm)
+        batch_fc1_l2_norms.append(fc1_l2_norm)
+        batch_fc2_l2_norms.append(fc2_l2_norm)
         
         optimizer.step()
         running_loss += loss.item()
@@ -275,13 +385,20 @@ def train(train_loader, model, criterion, optimizer, device, epoch):
             loss, current = loss.item(), batch * len(inputs)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
     
-    # Mittelwert der L2-Normen aller Batches in dieser Epoche
-    avg_l2_norm = sum(batch_l2_norms) / len(batch_l2_norms)
-    l2_norms.append(avg_l2_norm)
-        
+    # Mittelwerte der L2-Normen berechnen und in globale Listen eintragen
+    l2_norms.append(sum(batch_l2_norms) / len(batch_l2_norms))
+    conv_l2_norms.append(sum(batch_conv_l2_norms) / len(batch_conv_l2_norms))
+    fc_l2_norms.append(sum(batch_fc_l2_norms) / len(batch_fc_l2_norms))
+    
+    # Neue Layer-spezifischen L2-Normen
+    conv1_l2_norms.append(sum(batch_conv1_l2_norms) / len(batch_conv1_l2_norms))
+    conv2_l2_norms.append(sum(batch_conv2_l2_norms) / len(batch_conv2_l2_norms))
+    fc1_l2_norms.append(sum(batch_fc1_l2_norms) / len(batch_fc1_l2_norms))
+    fc2_l2_norms.append(sum(batch_fc2_l2_norms) / len(batch_fc2_l2_norms))
+    
     avg_loss = running_loss / len(train_loader)
     train_losses.append(avg_loss)
-    print(f"Avg loss: {avg_loss:>8f}, Epoch: {epoch+1:>3d}") 
+    print(f"Avg loss: {avg_loss:>8f}, Epoch: {epoch+1:>3d}")
 
 
 def test(test_loader, model, criterion, device):
@@ -310,6 +427,14 @@ def reset_lists():
     train_times.clear()
     l2_norms.clear()
     count_dead_neurons.clear()
+    conv_l2_norms.clear()
+    fc_l2_norms.clear()
+    
+    # Neue Listen zurücksetzen
+    conv1_l2_norms.clear()
+    conv2_l2_norms.clear()
+    fc1_l2_norms.clear()
+    fc2_l2_norms.clear()
 
 
 if __name__ == "__main__":
