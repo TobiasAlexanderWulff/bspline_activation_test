@@ -2,11 +2,37 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-import mplcursors
-import numpy as np
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+
+class SigmoidFixed(nn.Module):
+    def __init__(self):
+        super(SigmoidFixed, self).__init__()
+        self._x1 = -2
+        self._x2 = 2
+        self._y1 = F.sigmoid(torch.tensor(self._x1)).item()
+        self._y2 = F.sigmoid(torch.tensor(self._x2)).item()
+    
+    def forward(self, x):
+        return torch.where(
+            x < self._x1,
+            self._y1 + x - self._x1,
+            torch.where(
+                x > self._x2,
+                self._y2 + x - self._x2,
+                F.sigmoid(x)
+            )
+        )
+        
+    def __call__(self, x):
+        return self.forward(x)
+    
+    def __name__(self):
+        return "SigmoidFixed"
+    
 
 
 class CubicSpline(nn.Module):
@@ -17,7 +43,7 @@ class CubicSpline(nn.Module):
         super(CubicSpline, self).__init__()
         
         self._x = torch.tensor(x)
-        self._y = torch.tensor(y)
+        self._y = y
                 
         # Calc gradient of f at x[0] and x[-1]:
         self._x.requires_grad = True
@@ -29,6 +55,8 @@ class CubicSpline(nn.Module):
         self._yns = ysgrad[-1] * (x[-1] - x[-2])
         
         self._ys = self._solve_linear_system()
+        
+
 
     def forward(self, t):
         return self._spline(t)
@@ -117,8 +145,9 @@ class CubicSpline(nn.Module):
     
 if __name__ == "__main__":
     torch.set_default_device(device)
-    n = 5 # Funktionsabschnitte
-    f = F.sigmoid
+    n = 7 # Funktionsabschnitte
+    f = SigmoidFixed()
+    f_name = f.__name__()
     x = torch.linspace(-5.5, 5.5, n+1)
     y = f(x)
     
@@ -131,9 +160,10 @@ if __name__ == "__main__":
     ys = ys.detach().cpu().numpy()
     
     plt.figure()
+    plt.subplots_adjust(hspace=0.5)
     ax1 = plt.subplot(211)
     ax2 = plt.subplot(212)
-    ax1.set_title(f"{f.__name__} vs Cubic Spline")
+    ax1.set_title(f"{f_name} vs Cubic Spline")
     ax2.set_title("Derivatives")
     
     ax1.plot(x, y, "*g")
@@ -156,11 +186,12 @@ if __name__ == "__main__":
     yfs = yfs.detach().cpu().numpy()
     yps = yps.detach().cpu().numpy()
     
+    
 
-    ax1.plot(t, yf, "-r", label=f"{f.__name__}")
+    ax1.plot(t, yf, "-r", label=f"{f_name}")
     ax1.plot(t, yp, "-b", label="Cubic Spline")
     
-    ax2.plot(t, yfs, "-r", label=f"{f.__name__}")
+    ax2.plot(t, yfs, "-r", label=f"{f_name}")
     ax2.plot(t, yps, "-b", label="Cubic Spline")
     
     plt.legend()
