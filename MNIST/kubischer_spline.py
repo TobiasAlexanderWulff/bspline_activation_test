@@ -3,35 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-
-class SigmoidFixed(nn.Module):
-    def __init__(self):
-        super(SigmoidFixed, self).__init__()
-        self._x1 = -2
-        self._x2 = 2
-        self._y1 = F.sigmoid(torch.tensor(self._x1)).item()
-        self._y2 = F.sigmoid(torch.tensor(self._x2)).item()
-    
-    def forward(self, x):
-        return torch.where(
-            x < self._x1,
-            self._y1 + x - self._x1,
-            torch.where(
-                x > self._x2,
-                self._y2 + x - self._x2,
-                F.sigmoid(x)
-            )
-        )
-        
-    def __call__(self, x):
-        return self.forward(x)
-    
-    def __name__(self):
-        return "SigmoidFixed"
     
 
 
@@ -41,6 +13,13 @@ class CubicSpline(nn.Module):
         torch.set_default_device(device)
         
         super(CubicSpline, self).__init__()
+        
+        
+        self._x1 = -2
+        self._x2 = 2
+        self._y1 = f(torch.tensor(self._x1)).item()
+        self._y2 = f(torch.tensor(self._x2)).item()
+        
         
         self._x = torch.tensor(x)
         self._y = y
@@ -55,11 +34,18 @@ class CubicSpline(nn.Module):
         self._yns = ysgrad[-1] * (x[-1] - x[-2])
         
         self._ys = self._solve_linear_system()
-        
 
 
     def forward(self, t):
-        return self._spline(t)
+        return torch.where(
+            (t < self._x1),
+            self._y1 + t - self._x1,
+            torch.where(
+                (t > self._x2),
+                self._y2 + t - self._x2,
+                self._spline(t)
+            )
+        )
     
     
     def _spline(self, t):
@@ -146,8 +132,8 @@ class CubicSpline(nn.Module):
 if __name__ == "__main__":
     torch.set_default_device(device)
     n = 7 # Funktionsabschnitte
-    f = SigmoidFixed()
-    f_name = f.__name__()
+    f = F.sigmoid
+    f_name = f.__name__
     x = torch.linspace(-5.5, 5.5, n+1)
     y = f(x)
     

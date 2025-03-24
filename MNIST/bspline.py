@@ -53,7 +53,8 @@ class BSpline(nn.Module):
         self.min_knot = 0.0
         self.max_knot = 1.0
         self._gen_knots()
-        
+
+
     def _gen_control_points(self, cp_mode, cp_count):
         if cp_mode == "set":
             self.control_points = torch.tensor([
@@ -68,7 +69,8 @@ class BSpline(nn.Module):
             raise ValueError(f"Unknown cp_mode: {cp_mode}")
         self.control_points.requires_grad = True
         self.n = len(self.control_points) - 1
-    
+
+
     def _gen_knots(self):
         self.repeated_start_knots = self.k # <= k
         self.repeated_end_knots = self.k # <= k
@@ -85,7 +87,8 @@ class BSpline(nn.Module):
             ), dim=0,
         ).to(self.device)
         self.knots.requires_grad = False
-        
+
+
     def forward(self, t):
         match(t_mode):
             case "normal":
