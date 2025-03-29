@@ -14,7 +14,6 @@ class CubicSpline(nn.Module):
         
         super(CubicSpline, self).__init__()
         
-        
         self._x1 = -2
         self._x2 = 2
         self._y1 = f(torch.tensor(self._x1)).item()
@@ -37,6 +36,10 @@ class CubicSpline(nn.Module):
 
 
     def forward(self, t):
+        # Berechne die Werte der Spline-Funktion
+        # self._spline(t), wenn t in [x1, x2] liegt
+        # self._y1 + t - self._x1, wenn t < x1
+        # self._y2 + t - self._x2, wenn t > x2
         return torch.where(
             (t < self._x1),
             self._y1 + t - self._x1,
@@ -123,16 +126,16 @@ class CubicSpline(nn.Module):
         term2 = 2 * t * (-3*y0 + 3*y1 - 2*y0s - y1s)
         term3 = y0s
         return term1 + term2 + term3
-    
-        
-        
 
-    
+class G(nn.Module):
+    def forward(self, x):
+        return x * 0.1
     
 if __name__ == "__main__":
     torch.set_default_device(device)
     n = 7 # Funktionsabschnitte
     f = F.sigmoid
+    g = G()
     f_name = f.__name__
     x = torch.linspace(-5.5, 5.5, n+1)
     y = f(x)
@@ -156,29 +159,39 @@ if __name__ == "__main__":
     ax2.plot(x, ys, "*g")
     
     
-    t = torch.linspace(-5.5, 5.5, 100)
+    t = torch.linspace(-4.5, 4.5, 100)
+    tg = torch.linspace(-45, 45, 1000)
     yf = f(t)
     model = CubicSpline(x, y, f)
     yp = model(t)
+    ypg = model(g(tg))
     
     t.requires_grad = True
+    tg.requires_grad = True
     yfs = torch.autograd.grad(f(t), t, torch.ones_like(t), create_graph=True)[0]
     yps = torch.autograd.grad(model(t), t, torch.ones_like(t), create_graph=True)[0]
+    ypgs = torch.autograd.grad(model(g(tg)), tg, torch.ones_like(tg), create_graph=True)[0]
     t.requires_grad = False
+    tg.requires_grad = False
 
     t = t.detach().cpu().numpy()
+    tg = tg.detach().cpu().numpy()
     yf = yf.detach().cpu().numpy()
     yp = yp.detach().cpu().numpy()
+    ypg = ypg.detach().cpu().numpy()
     yfs = yfs.detach().cpu().numpy()
     yps = yps.detach().cpu().numpy()
+    ypgs = ypgs.detach().cpu().numpy()
     
     
 
     ax1.plot(t, yf, "-r", label=f"{f_name}")
-    ax1.plot(t, yp, "-b", label="Cubic Spline")
+    ax1.plot(t, yp, "-g", label="Spline")
+    ax1.plot(g(tg), ypg, "-b", label="Spline with g")
     
     ax2.plot(t, yfs, "-r", label=f"{f_name}")
-    ax2.plot(t, yps, "-b", label="Cubic Spline")
+    ax2.plot(t, yps, "-g", label="Spline")
+    ax2.plot(g(tg), ypgs, "-b", label="Spline with g")
     
     plt.legend()
     plt.show()
