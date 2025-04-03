@@ -3,14 +3,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
 
 
 class CubicSpline(nn.Module):
     def __init__(self, x, y, f):
         
-        torch.set_default_device(device)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        x = torch.tensor(x, device=self.device)
+        y = torch.tensor(y, device=self.device)
+        self.func = f
         
         super(CubicSpline, self).__init__()
         
@@ -29,8 +32,8 @@ class CubicSpline(nn.Module):
         self._x.requires_grad = False
         
         # Randbedingungen (erste Ableitungen an den Enden der Funktion) + Skalierung auf x-Abstand
-        self._y0s = ysgrad[0] * (x[1] - x[0])
-        self._yns = ysgrad[-1] * (x[-1] - x[-2])
+        self._y0s = (ysgrad[0] * (x[1] - x[0])).to(self.device)
+        self._yns = (ysgrad[-1] * (x[-1] - x[-2])).to(self.device)
         
         self._ys = self._solve_linear_system()
 
@@ -82,7 +85,7 @@ class CubicSpline(nn.Module):
             4 * torch.eye(n-2) 
             + torch.diag(torch.ones(n-3), 1) 
             + torch.diag(torch.ones(n-3), -1)
-            )
+            ).to(self.device)
         
         # Vektor b mit eingebauten Randbedingungen:
         # [3 * (y_1 - y_0)]
@@ -97,8 +100,9 @@ class CubicSpline(nn.Module):
         # Löse das lineare Gleichungssystem
         c = torch.linalg.solve(A, b)
         
+        
         # Füge die Randbedingungen wieder ein
-        return torch.cat([torch.tensor([self._y0s]), c, torch.tensor([self._yns])])
+        return torch.cat([torch.tensor([self._y0s], device=self.device), c, torch.tensor([self._yns], device=self.device)])
     
     def _hermite(self, t, y0, y1, y0s, y1s):
         term1 = torch.pow(t, 3) * (2*y0 - 2*y1 + y0s + y1s)
@@ -106,6 +110,14 @@ class CubicSpline(nn.Module):
         term3 = t * y0s
         term4 = y0
         return term1 + term2 + term3 + term4
+
+
+    def __str__(self):
+        return f"CubicSpline mimicing {self.func.__name__} with {len(self._x)} points"
+    
+    
+    def __repr__(self):
+        return str(self)
 
     
 if __name__ == "__main__":

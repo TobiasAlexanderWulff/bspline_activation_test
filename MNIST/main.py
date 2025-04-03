@@ -13,9 +13,17 @@ from functools import partial
 import json
 import os
 from bspline import BSpline, Operation
+from kubischer_spline import CubicSpline
 
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+n = 7
+f = partial(F.sigmoid)
+x = torch.linspace(-5.5, 5.5, n+1)
+y = f(x)
+
+cubic_spline_prepared = CubicSpline(x, y, f)
 
 
 class AF(Enum):
@@ -23,13 +31,14 @@ class AF(Enum):
     SIGMOID = partial(F.sigmoid)
     TANH = partial(F.tanh)
     LEAKY_RELU = partial(F.leaky_relu)
-    B_SPLINE_X = partial(BSpline(Operation.X))
-    B_SPLINE_Y = partial(BSpline(Operation.Y))
-    B_SPLINE_SUM = partial(BSpline(Operation.SUM))
-    B_SPLINE_DIF = partial(BSpline(Operation.DIF))
-    B_SPLINE_MUL = partial(BSpline(Operation.MUL))
-    B_SPLINE_MAX = partial(BSpline(Operation.MAX))
-    B_SPLINE_MIN = partial(BSpline(Operation.MIN))
+    #B_SPLINE_X = partial(BSpline(Operation.X))
+    #B_SPLINE_Y = partial(BSpline(Operation.Y))
+    #B_SPLINE_SUM = partial(BSpline(Operation.SUM))
+    #B_SPLINE_DIF = partial(BSpline(Operation.DIF))
+    #B_SPLINE_MUL = partial(BSpline(Operation.MUL))
+    #B_SPLINE_MAX = partial(BSpline(Operation.MAX))
+    #B_SPLINE_MIN = partial(BSpline(Operation.MIN))
+    CUBIC_SPLINE = cubic_spline_prepared
     
 seeds = [2934, 1234, 9859283]
 
@@ -447,6 +456,9 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
     
+    map(lambda activation: print(f"Activation: {activation.name}"), AF)
+
+    
     for seed in seeds:
         reset_lists()
         torch.manual_seed(seed)
@@ -456,6 +468,10 @@ if __name__ == "__main__":
         torch.backends.cudnn.benchmark = False
         print(f"Seed: {seed}")
         metrics["seed"] = seed
+        
+        
+    
+        
                 
         for activation in AF:
             
@@ -466,6 +482,11 @@ if __name__ == "__main__":
             # * Uncomment to skip all B-Spline activations
             #if activation.name.startswith("B_SPLINE"):
             #    continue
+            
+            # * Unccomment to skip all activations but the set one
+            set_activation = "CUBIC_SPLINE"
+            if activation.name != set_activation:
+                continue
             
             reset_lists()
             os.makedirs(f"MNIST/{activation.name}", exist_ok=True)
